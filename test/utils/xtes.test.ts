@@ -338,8 +338,8 @@ describe("xTES", function () {
         expect(await this.stakeToken.balanceOf(this.xTES.address)).to.equal(4700)
         // Lock 0 is expired
         const lock0 = await this.xTES.lockOfOwnerByIndex(this.bob.address, 0)
-        const timestampNow = await now();
-        expect(lock0.unlockedAt.toNumber()).to.lessThan(timestampNow);
+        const timestampNow = await now()
+        expect(lock0.unlockedAt.toNumber()).to.lessThan(timestampNow)
         expect(await this.xTES.getVotes(this.bob.address)).to.equal(20)
         expect(await this.xTES.getTotalVotes()).to.equal(169)
       }
@@ -354,7 +354,7 @@ describe("xTES", function () {
         const [expected, got] = await this.xTES.toStakeToken(30, 90)
         const nowInSec = await now()
         expect(await this.xTES.lockLengthOf(this.carol.address)).to.equal(1)
-        
+
         expect(lock.id).to.equal(4)
         expect(lock.amount).to.equal(30)
         expect(lock.duration).to.equal(90)
@@ -681,6 +681,13 @@ describe("xTES", function () {
       expect(await this.xTES.totalSupply()).to.equal(100)
       expect(await this.xTES.getTotalVotes()).to.equal(75)
       expect(await this.stakeToken.balanceOf(this.bob.address)).to.equal(900)
+    })
+
+    it("should fail if access lockIndex not exists", async function () {
+      this.xTES = await this.xTESFactory.connect(this.owner).deploy(this.stakeToken.address, 700, 1700, 14, 90)
+      await this.xTES.deployed()
+
+      await expect(this.xTES.connect(this.alice.address).lockOfOwnerByIndex(this.alice.address, 0)).revertedWith("OUT_OF_BOUNDS_INDEX")
     })
   })
 })

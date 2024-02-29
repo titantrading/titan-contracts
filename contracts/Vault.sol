@@ -6,18 +6,16 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import "./interfaces/IVault.sol";
-
-contract Vault is Context, Ownable, IVault {
+contract Vault is Context, Ownable {
 	using SafeERC20 for IERC20;
 
-	address public immutable TES;		
+	address public immutable TES;
 	address public stakingPool;
 
 	constructor(address _TES) {
 		TES = _TES;
 		stakingPool = _msgSender();
-    }
+  }
 
 	function claim(uint256 _amount) public {
 		require(_msgSender() == stakingPool, "FORBIDDEN");

@@ -47,25 +47,26 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
 
     mapping(address owner => uint256) private _lockedBalances;
     mapping (address owner => uint256[]) private _ownedLocks;
-    mapping (uint256 lockId => uint256) _ownedLocksIndex;
 
     Lock[] private _allLocks;
     mapping (uint256 lockId => uint256) _allLocksIndex;
 
-    ///@dev Emited when `rewardPerBlock` is changed from `account`.
+    ///@dev Emitted when `rewardPerBlock` is changed from `account`.
     event RewardPerBlockChanged(address account, uint256 rewardPerBlock);
 
-    ///@dev Emited when an `amount` of TOKENs is entered into the pool.
-    event Enter(address indexed user, uint256 amount);
+    ///@dev Emitted when an `amount` of TOKENs is entered into the pool.
+    event Entered(address indexed user, uint256 amount);
 
-    ///@dev Emited when an `amount` of xTES is leave the pool.
-    event Leave(address indexed user, uint256 amount, uint256 lockIndex);
+    ///@dev Emitted when an `amount` of xTES is leave the pool.
+    event Leaved(address indexed user, uint256 amount);
 
-    ///@dev Emited when an `lockIndex` lock is released the pool.
-    event Release(address indexed user, uint256 lockIndex);
+    event Locked(address indexed user, uint256 lockId, uint256 amount, uint256 duration);
 
-    ///@dev Emited when an `lockIndex` lock is cancelled the pool.
-    event Cancel(address indexed user, uint256 lockIndex);
+    ///@dev Emitted when an `lockId` lock is released the pool.
+    event Released(address indexed user, uint256 lockId);
+
+    ///@dev Emitted when an `lockId` lock is cancelled the pool.
+    event Cancelled(address indexed user, uint256 lockId);
 
     constructor(
         address _stakeToken,
@@ -121,8 +122,7 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
     }
 
     function lockOfOwnerByIndex(address account, uint256 index) public view returns (Lock memory) {
-        require(index < lockLengthOf(account), "OUT_OF_BOUNDS_INDEX");
-        return _unsafeAccessLock(account, index);
+        return _accessLock(account, index);
     }
 
     function allLockLength() public view returns (uint256) {
@@ -274,7 +274,7 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
         uint256 shares = toShare(_amount);
         _mint(_msgSender(), shares);
         IERC20(stakeToken).transferFrom(_msgSender(), address(this), _amount);
-        emit Enter(_msgSender(), _amount);
+        emit Entered(_msgSender(), _amount);
     }
 
     ///@dev Leave the pool. Leaving the pool does not mean receiving TOKENs immediately, it will be locked in `duration`.
@@ -291,10 +291,10 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
 
         //Share tokens will be locked in the contract
         //These tokens will still earn the same rewards as non-locked tokens, there is no difference between them
-        uint256 lockIndex = _createLockFor(_msgSender(), _shares, _duration);
+        _createLockFor(_msgSender(), _shares, _duration);
         _transfer(_msgSender(), address(this), _shares);
 
-        emit Leave(_msgSender(), _shares, lockIndex);
+        emit Leaved(_msgSender(), _shares);
     }
 
     ///@dev Cancel the `lockIndex` lock.
@@ -302,7 +302,7 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
         Lock memory lock = _destroyLock(lockIndex, true);
         _transfer(address(this), _msgSender(), lock.amount);
 
-        emit Cancel(_msgSender(), lockIndex);
+        emit Cancelled(_msgSender(), lock.id);
     }
 
     ///@dev Release the `lockIndex` lock. Claim back your TOKENs.
@@ -323,7 +323,7 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
         }
         _burn(address(this), lock.amount);
 
-        emit Release(_msgSender(), lockIndex);
+        emit Released(_msgSender(), lock.id);
     }
 
     ///@dev Creates a lock to hold the amount of share tokens when a user requests to leave the pool.
@@ -343,28 +343,31 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
 
         _lockIdTracker++;
 
+        emit Locked(_msgSender(), lockId, _amount, _duration);
+
         return lockId;
     }
 
-    function _unsafeAccessLock(address account, uint256 index) internal view returns (Lock memory) {
+    function _accessLock(address account, uint256 index) internal view returns (Lock memory) {
+        uint256[] memory ownedLocks = _ownedLocks[account];
+        uint256 numOwnedLocks = ownedLocks.length;
+        require(numOwnedLocks > 0 && index < numOwnedLocks, "OUT_OF_BOUNDS_INDEX");
+
         uint256 lockId = _ownedLocks[account][index];
         uint256 lockIndex = _allLocksIndex[lockId];
         return _allLocks[lockIndex];
     }
 
     function _destroyLock(uint256 lockIndex, bool lte) internal returns (Lock memory) {
-        uint256[] storage ownedLocks = _ownedLocks[_msgSender()];
-        uint256 numOwnedLocks = ownedLocks.length;
-        require(numOwnedLocks > 0 && lockIndex < numOwnedLocks, "OUT_OF_BOUNDS_INDEX");
-    
-        Lock memory lock = _unsafeAccessLock(_msgSender(), lockIndex);
+        Lock memory lock = _accessLock(_msgSender(), lockIndex);
         if (lte) {
             require(block.timestamp < lock.unlockedAt, "LOCK_EXPIRED");
         } else {
             require(block.timestamp > lock.unlockedAt, "UNEXPIRED");
         }
 
-        uint256 lastLockIndex = numOwnedLocks - 1;
+        uint256[] storage ownedLocks = _ownedLocks[_msgSender()];
+        uint256 lastLockIndex = ownedLocks.length - 1;
         if (lockIndex != lastLockIndex) {
             uint256 lastLockId = ownedLocks[lastLockIndex];
             ownedLocks[lockIndex] = lastLockId;
