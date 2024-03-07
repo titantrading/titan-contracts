@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 
+import "./interfaces/IBlast.sol";
 import "./Vault.sol";
 
 //StakingPool allows staking TESs and getting xTESs back as proof to get rewards from pool.
@@ -75,6 +76,9 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
         uint256 _minDurationLock,
         uint256 _maxDurationLock
     ) {
+        IBlast(0x4300000000000000000000000000000000000002)
+            .configureClaimableGas();
+
         stakeToken = _stakeToken;
         lastRewardBlock = _startBlock;
         endBlock = _endBlock;
@@ -418,5 +422,19 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
         } else {
             IERC20(stakeToken).safeTransfer(_to, _amount);
         }
+    }
+
+    function claimAllGas(address recipient) external onlyOwner {
+        IBlast(0x4300000000000000000000000000000000000002).claimAllGas(
+            address(this),
+            recipient
+        );
+    }
+
+    function claimMaxGas(address recipient) external onlyOwner {
+        IBlast(0x4300000000000000000000000000000000000002).claimMaxGas(
+            address(this),
+            recipient
+        );
     }
 }

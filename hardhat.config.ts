@@ -13,8 +13,6 @@ import "solidity-coverage"
 
 import { HardhatUserConfig } from "hardhat/types"
 
-const accounts = [process.env.PRIVATE_KEY]
-
 const config: HardhatUserConfig = {
   abiExporter: {
     path: "./abi",
@@ -42,21 +40,17 @@ const config: HardhatUserConfig = {
     },
   },
   networks: {
-    mainnet: {
-      url: "https://bsc-dataseed.binance.org",
-      accounts,
-      chainId: 56,
-      live: true,
+    blastSepolia: {
+      url: "https://sepolia.blast.io/",
+      accounts: process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
       saveDeployments: true,
+      gasPrice: 20000000000,
     },
-    testnet: {
-      url: "https://data-seed-prebsc-1-s2.binance.org:8545/",
-      accounts,
-      chainId: 97,
-      live: true,
+    blast: {
+      url: "https://rpc.blast.io",
+      accounts: process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
       saveDeployments: true,
-      tags: ["staging"],
-      gasMultiplier: 2,
+      gasPrice: 1000000000,
     },
   },
   paths: {
