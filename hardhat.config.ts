@@ -1,16 +1,14 @@
 import "dotenv/config"
-import "@nomiclabs/hardhat-etherscan"
 import "@nomiclabs/hardhat-solhint"
-import "@nomiclabs/hardhat-waffle"
 import "hardhat-abi-exporter"
 import "hardhat-deploy"
 import "hardhat-deploy-ethers"
 import "hardhat-gas-reporter"
 import "hardhat-spdx-license-identifier"
-import "hardhat-typechain"
 import "hardhat-watcher"
 import "solidity-coverage"
-
+import "@nomicfoundation/hardhat-toolbox";
+import "@nomicfoundation/hardhat-verify";
 import { HardhatUserConfig } from "hardhat/types"
 
 const config: HardhatUserConfig = {
@@ -24,6 +22,16 @@ const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY,
+    customChains: [
+      {
+        network: "blast_sepolia",
+        chainId: 168587773,
+        urls: {
+          apiURL: "https://api.routescan.io/v2/network/testnet/evm/168587773/etherscan",
+          browserURL: "https://testnet.blastscan.io"
+        }
+      }
+    ]
   },
   gasReporter: {
     coinmarketcap: process.env.COINMARKETCAP_API_KEY,
@@ -34,13 +42,16 @@ const config: HardhatUserConfig = {
   mocha: {
     timeout: 20000,
   },
+  sourcify: {
+    enabled: true
+  },
   namedAccounts: {
     deployer: {
       default: 0,
     },
   },
   networks: {
-    blastSepolia: {
+    blast_sepolia: {
       url: "https://sepolia.blast.io/",
       accounts: process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
       saveDeployments: true,
