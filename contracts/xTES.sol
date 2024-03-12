@@ -76,6 +76,7 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
         uint256 _minDurationLock,
         uint256 _maxDurationLock
     ) {
+        require(_startBlock > block.number && _endBlock > _startBlock);
         IBlast(0x4300000000000000000000000000000000000002)
             .configureClaimableGas();
 
@@ -167,11 +168,18 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
 
     ///@dev Returns the amount of share TOKENs received when exchanging `_amount` stake TOKENs.
     ///@dev Formula: stakeIn/shareOut = totalLocked/totalShares
-    function toShare(uint256 _amount) public view returns (uint256) {
+    function toShare(uint256 _amount, bool _isHarvest) public view returns (uint256) {
         uint256 totalLocked = IERC20(stakeToken).balanceOf(address(this));
         uint256 totalShares = totalSupply();
         if (totalLocked == 0 || totalShares == 0) {
             return _amount;
+        }
+
+        //the harvest variable will be expected to be true when called from the client for calculation
+        if (_isHarvest && block.number > lastRewardBlock) {
+            uint256 multiplier = getMultiplier(lastRewardBlock, block.number);
+            uint256 reward = multiplier * rewardPerBlock;
+            totalLocked += reward;
         }
 
         return (_amount * totalShares / totalLocked);
@@ -179,11 +187,18 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
 
     ///@dev Returns the amount of stake TOKENs received when exchanging `_shares` share TOKENs.
     ///@dev Formula: stakeIn/shareOut = totalLocked/totalShares
-    function toStakeToken(uint256 _shares, uint256 _duration) public view returns (uint256, uint256) {
+    function toStakeToken(uint256 _shares, uint256 _duration, bool _isHarvest) public view returns (uint256, uint256) {
         uint256 totalLocked = IERC20(stakeToken).balanceOf(address(this));
         uint256 totalShares = totalSupply();
         if (totalShares == 0 || _shares == 0) {
             return (0, 0);
+        }
+
+        //the harvest variable will be expected to be true when called from the client for calculation
+        if (_isHarvest && block.number > lastRewardBlock) {
+            uint256 multiplier = getMultiplier(lastRewardBlock, block.number);
+            uint256 reward = multiplier * rewardPerBlock;
+            totalLocked += reward;
         }
 
         uint256 expectedAmount = (_shares * totalLocked / totalShares);
@@ -193,7 +208,7 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
     
     ///@dev Sets new value for `rewardPerBlock` state variable.
     ///@dev Only callable by ơwner.
-    function setRewardPerBlock(uint256 _rewardPerBlock) public {
+    function setRewardPerBlock(uint256 _rewardPerBlock) public onlyOwner {
         rewardPerBlock = _rewardPerBlock;
         emit RewardPerBlockChanged(_msgSender(), _rewardPerBlock);
     }
@@ -275,9 +290,9 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
 
         harvest();
 
-        uint256 shares = toShare(_amount);
+        uint256 shares = toShare(_amount, false);
         _mint(_msgSender(), shares);
-        IERC20(stakeToken).transferFrom(_msgSender(), address(this), _amount);
+        IERC20(stakeToken).safeTransferFrom(_msgSender(), address(this), _amount);
         emit Entered(_msgSender(), _amount);
     }
 
@@ -318,7 +333,7 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
 
         Lock memory lock = _destroyLock(lockIndex, false);
 
-        (uint256 expected, uint256 got) = toStakeToken(lock.amount, lock.duration);
+        (uint256 expected, uint256 got) = toStakeToken(lock.amount, lock.duration, false);
         if (expected > got) {
             ERC20Burnable(stakeToken).burn(expected - got);
         }
@@ -364,10 +379,14 @@ contract xTES is Context, Ownable, ERC20("xTES", "xTES") {
 
     function _destroyLock(uint256 lockIndex, bool lte) internal returns (Lock memory) {
         Lock memory lock = _accessLock(_msgSender(), lockIndex);
-        if (lte) {
-            require(block.timestamp < lock.unlockedAt, "LOCK_EXPIRED");
-        } else {
-            require(block.timestamp > lock.unlockedAt, "UNEXPIRED");
+        
+        //allows you to cancel the lock at any time when in an emergency state
+        if (!emergency) {
+            if (lte) {
+                require(block.timestamp < lock.unlockedAt, "LOCK_EXPIRED");
+            } else {
+                require(block.timestamp > lock.unlockedAt, "UNEXPIRED");
+            }
         }
 
         uint256[] storage ownedLocks = _ownedLocks[_msgSender()];

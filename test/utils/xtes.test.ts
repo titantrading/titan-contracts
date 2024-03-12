@@ -1,5 +1,6 @@
 const { ethers } = require("hardhat")
 import { expect } from "chai"
+import { BigNumber } from "ethers"
 
 import { advanceBlockTo, blockIncreaseTime, getBlockCount, now } from "../utils/index"
 
@@ -122,7 +123,7 @@ describe("xTES", function () {
 
     it("the multiplier should be calculated correctly", async function () {
       // 100 TOKEN per block farming rate starting at block 100
-      this.xTES = await this.xTESFactory.connect(this.owner).deploy(this.stakeToken.address, 0, 50, 14, 90)
+      this.xTES = await this.xTESFactory.connect(this.owner).deploy(this.stakeToken.address, 40, 50, 14, 90)
       expect(await this.xTES.getMultiplier(50, 100)).to.be.equal(0)
       expect(await this.xTES.getMultiplier(10, 100)).to.be.equal(40)
       expect(await this.xTES.getMultiplier(10, 30)).to.be.equal(20)
@@ -272,7 +273,7 @@ describe("xTES", function () {
         expect(await this.xTES.allLockLength()).to.equal(1)
 
         const lock = await this.xTES.lockOfOwnerByIndex(this.bob.address, 0)
-        const [expected, got] = await this.xTES.toStakeToken(20, 14)
+        const [expected, got] = await this.xTES.toStakeToken(20, 14, true)
         const nowInSec = await now()
         expect(await this.xTES.lockLengthOf(this.bob.address)).to.equal(1)
         expect(lock.id).to.equal(1)
@@ -299,7 +300,7 @@ describe("xTES", function () {
         // Exchange rate: (1e18)*(2700+1000)/(100+40+38+11) => 1 xTES : 19.57 TOKEN
         // Alice should get: 20*19.57= 391 TOKEN
         const lock = await this.xTES.lockOfOwnerByIndex(this.alice.address, 0)
-        const [expected, got] = await this.xTES.toStakeToken(20, 90)
+        const [expected, got] = await this.xTES.toStakeToken(20, 90, true)
         const nowInSec = await now()
         expect(await this.xTES.lockLengthOf(this.alice.address)).to.equal(1)
         expect(lock.id).to.equal(2)
@@ -323,7 +324,7 @@ describe("xTES", function () {
         // Exchange rate: (1e18)*(3700+1000)/(100+40+38+11) => 1 xTES : 24.86 TOKEN
         // Bob should get: 15*24.86 = 373 TOKEN
         const lock = await this.xTES.lockOfOwnerByIndex(this.bob.address, 1)
-        const [expected, got] = await this.xTES.toStakeToken(15, 90)
+        const [expected, got] = await this.xTES.toStakeToken(15, 90, true)
         const nowInSec = await now()
         expect(await this.xTES.lockLengthOf(this.bob.address)).to.equal(2)
         expect(lock.id).to.equal(3)
@@ -351,7 +352,7 @@ describe("xTES", function () {
         // Exchange rate: (1e18)*(4700+1000)/(100+40+38+11) => 1 xTES : 30.1587 TOKEN
         // Carol should get: 30*30.1587 = 904 TOKEN
         const lock = await this.xTES.lockOfOwnerByIndex(this.carol.address, 0)
-        const [expected, got] = await this.xTES.toStakeToken(30, 90)
+        const [expected, got] = await this.xTES.toStakeToken(30, 90, true)
         const nowInSec = await now()
         expect(await this.xTES.lockLengthOf(this.carol.address)).to.equal(1)
 
@@ -684,10 +685,84 @@ describe("xTES", function () {
     })
 
     it("should fail if access lockIndex not exists", async function () {
-      this.xTES = await this.xTESFactory.connect(this.owner).deploy(this.stakeToken.address, 700, 1700, 14, 90)
+      this.xTES = await this.xTESFactory.connect(this.owner).deploy(this.stakeToken.address, 1000, 1700, 14, 90)
       await this.xTES.deployed()
 
       await expect(this.xTES.connect(this.alice.address).lockOfOwnerByIndex(this.alice.address, 0)).revertedWith("OUT_OF_BOUNDS_INDEX")
+    })
+
+    it("should allow cancel expired locks when contract in a state of emergency", async function () {
+      // 100 per block farming rate starting at block 600
+      this.xTES = await this.xTESFactory.connect(this.owner).deploy(this.stakeToken.address, 2000, 3000, 14, 90)
+
+      await this.xTES.deployed()
+      await this.stakeToken.connect(this.owner).approve(this.xTES.address, 100000)
+      await this.xTES.connect(this.owner).allocate(100000)
+
+      await this.stakeToken.connect(this.alice).approve(this.xTES.address, 1000)
+      await this.stakeToken.connect(this.bob).approve(this.xTES.address, 1000)
+      await this.stakeToken.connect(this.carol).approve(this.xTES.address, 1000)
+
+      // Bob enter 100 TOKENs at block 2010
+      await advanceBlockTo("2009")
+      await this.xTES.connect(this.bob).enter(100)
+      expect(await this.xTES.balanceOf(this.bob.address)).to.equal(100)
+      expect(await this.xTES.totalSupply()).to.equal(100)
+
+      // Bob leaves 25 xTES at block 2020
+      //  Exchange rate: (1e18)*(100+1000)/100 => 1 xTES :11 TOKEN
+      //  Bob should get: 100*11 = 1100 TOKENs
+      await advanceBlockTo("2019")
+      await this.xTES.connect(this.bob).leave(25, 14)
+      expect(await this.xTES.allLockLength()).to.equal(1)
+
+      let unlockedAt = (await now()) + 14
+      const lock = await this.xTES.lockOfOwnerByIndex(this.bob.address, 0)
+      expect(lock.id).to.equal(1)
+      expect(lock.amount).to.equal(25)
+      expect(lock.duration).to.equal(14)
+      expect(lock.unlockedAt).to.equal(unlockedAt)
+      expect(await this.xTES.lockLengthOf(this.bob.address)).to.equal(1)
+      expect(await this.xTES.lockedBalanceOf(this.bob.address)).to.equal(25)
+      expect(await this.xTES.allLockLength()).to.equal(1)
+      expect(await this.xTES.balanceOf(this.bob.address)).to.equal(75)
+      expect(await this.xTES.balanceOf(this.xTES.address)).to.equal(25)
+      expect(await this.xTES.getVotes(this.bob.address)).to.equal(100)
+      expect(await this.stakeToken.balanceOf(this.xTES.address)).to.equal(1100)
+      expect(await this.xTES.totalSupply()).to.equal(100)
+      expect(await this.xTES.getTotalVotes()).to.equal(100)
+      expect(await this.stakeToken.balanceOf(this.bob.address)).to.equal(900)
+
+      await blockIncreaseTime(100)
+      await this.xTES.connect(this.owner).setEmergency(true)
+      await this.xTES.connect(this.bob).cancelLock(0)
+    })
+
+    it("should calculate the exact amount of shares or staked", async function () {
+      // 100 per block farming rate starting at block 600
+      this.xTES = await this.xTESFactory.connect(this.owner).deploy(this.stakeToken.address, 3000, 4000, 14, 90)
+
+      await this.xTES.deployed()
+      await this.stakeToken.connect(this.owner).approve(this.xTES.address, 100000)
+      await this.xTES.connect(this.owner).allocate(100000)
+
+      await this.stakeToken.connect(this.alice).approve(this.xTES.address, 1000)
+      await this.stakeToken.connect(this.bob).approve(this.xTES.address, 1000)
+      await this.stakeToken.connect(this.carol).approve(this.xTES.address, 1000)
+
+      // Bob enter 100 TOKENs at block 3009
+      await advanceBlockTo("3009")
+      await this.xTES.connect(this.bob).enter(100)
+      expect(await this.xTES.balanceOf(this.bob.address)).to.equal(100)
+      expect(await this.xTES.totalSupply()).to.equal(100)
+
+      await advanceBlockTo("3020")
+      expect(await this.xTES.toShare(100, true)).to.be.equal(9)
+      for (let i = 14; i <= 90; i++) {
+        const [executed, got] = await this.xTES.toStakeToken(100, i, true)
+        expect(executed).to.be.equal(1100)
+        expect(got).to.be.equal(BigNumber.from(executed).div(2).add(executed.mul(i - 14).div(152)).toHexString())
+      }
     })
   })
 })
